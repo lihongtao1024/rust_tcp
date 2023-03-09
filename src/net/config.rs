@@ -1,15 +1,47 @@
-#[derive(Clone)]
-pub struct Config {
-    pub send_size: usize,
-    pub recv_size: usize,
-    pub listener_limit: usize,
-    pub socket_limit: usize,    
-    pub message_limit: usize,
+use std::future::Future;
+use crate::Dispatcher;
+use crate::ExtParser;
+
+pub struct Config<F1, F2, F3, F4, F5, F6>
+where
+    F1: Future<Output = ()> + Sync + Send + 'static,
+    F2: Future<Output = ()> + Sync + Send + 'static,
+    F3: Future<Output = ()> + Sync + Send + 'static,
+    F4: Future<Output = ()> + Sync + Send + 'static,
+    F5: Future<Output = ()> + Sync + Send + 'static,
+    F6: Future<Output = ()> + Sync + Send + 'static {
+    pub socket_send_buf_size: usize,
+    pub socket_recv_buf_size: usize,
+    pub socket_send_request_limit: usize,
+    pub bind_listener_limit: usize,
+    pub conn_socket_limit: usize,    
+    pub dispatch_queue_limit: usize,
+    pub dispatch_instance: Dispatcher<F1, F2, F3, F4, F5, F6>,
+    pub parser_instance: ExtParser,
 }
 
-impl Config {
-    pub fn new(send_size: usize, recv_size: usize, listener_limit: usize, 
-        socket_limit: usize, message_limit: usize) -> Self {
-        Self { send_size, recv_size, listener_limit, socket_limit, message_limit }
+impl<F1, F2, F3, F4, F5, F6> Config<F1, F2, F3, F4, F5, F6>
+where 
+    F1: Future<Output = ()> + Sync + Send + 'static,
+    F2: Future<Output = ()> + Sync + Send + 'static,
+    F3: Future<Output = ()> + Sync + Send + 'static,
+    F4: Future<Output = ()> + Sync + Send + 'static,
+    F5: Future<Output = ()> + Sync + Send + 'static,
+    F6: Future<Output = ()> + Sync + Send + 'static {
+    pub fn new(socket_send_buf_size: usize, socket_recv_buf_size: usize, 
+        socket_send_request_limit: usize, bind_listener_limit: usize, 
+        conn_socket_limit: usize, dispatch_queue_limit: usize,
+        dispatch_instance: Dispatcher<F1, F2, F3, F4, F5, F6>, 
+        parser_instance: ExtParser) -> Self {
+        Self { 
+            socket_send_buf_size,
+            socket_recv_buf_size,
+            socket_send_request_limit,
+            bind_listener_limit,
+            conn_socket_limit,
+            dispatch_queue_limit,
+            dispatch_instance,
+            parser_instance,
+        }
     }
 }
