@@ -6,35 +6,39 @@ use tokio::sync::OwnedSemaphorePermit;
 use tokio::sync::broadcast;
 use tokio::task;
 use crate::Config;
+use crate::Dispatcher;
 use crate::Message;
 use crate::Listener;
+use crate::Parser;
 
-pub struct Component<F1, F2, F3, F4, F5, F6>
+pub struct Component<FA, FB, FC, FD, FE, FF>
 where
-    F1: Future<Output = ()> + Sync + Send + 'static,
-    F2: Future<Output = ()> + Sync + Send + 'static,
-    F3: Future<Output = ()> + Sync + Send + 'static,
-    F4: Future<Output = ()> + Sync + Send + 'static,
-    F5: Future<Output = ()> + Sync + Send + 'static,
-    F6: Future<Output = ()> + Sync + Send + 'static {
-    config: Arc<Config<F1, F2, F3, F4, F5, F6>>,
+    FA: Future<Output = ()> + Sync + Send + 'static,
+    FB: Future<Output = ()> + Sync + Send + 'static,
+    FC: Future<Output = ()> + Sync + Send + 'static,
+    FD: Future<Output = ()> + Sync + Send + 'static,
+    FE: Future<Output = ()> + Sync + Send + 'static,
+    FF: Future<Output = ()> + Sync + Send + 'static {
+    config: Arc<Config>,
+    parser: Arc<Parser>,
     bind_listener_permits: Arc<Semaphore>,
-    conn_socket_permits: Arc<Semaphore>,
+    conn_socket_permits: Arc<Semaphore>,    
+    dispatcher: Dispatcher<FA, FB, FC, FD, FE,FF>,
     dispatch_sender: mpsc::Sender<Message>,
     dispatch_receiver: mpsc::Receiver<Message>,
     shutdown_receiver: broadcast::Receiver<()>,
     shutdown_sender: broadcast::Sender<()>,
 }
 
-impl<F1, F2, F3, F4, F5, F6> Component<F1, F2, F3, F4, F5, F6>
+impl<FA, FB, FC, FD, FE, FF> Component<FA, FB, FC, FD, FE, FF>
 where
-    F1: Future<Output = ()> + Sync + Send + 'static,
-    F2: Future<Output = ()> + Sync + Send + 'static,
-    F3: Future<Output = ()> + Sync + Send + 'static,
-    F4: Future<Output = ()> + Sync + Send + 'static,
-    F5: Future<Output = ()> + Sync + Send + 'static,
-    F6: Future<Output = ()> + Sync + Send + 'static {
-    pub fn new(config: Config<F1, F2, F3, F4, F5, F6>) -> Self {
+    FA: Future<Output = ()> + Sync + Send + 'static,
+    FB: Future<Output = ()> + Sync + Send + 'static,
+    FC: Future<Output = ()> + Sync + Send + 'static,
+    FD: Future<Output = ()> + Sync + Send + 'static,
+    FE: Future<Output = ()> + Sync + Send + 'static,
+    FF: Future<Output = ()> + Sync + Send + 'static {
+    pub fn new(config: Config, parser: Parser, dispatcher: Dispatcher<FA, FB, FC, FD, FE, FF>) -> Self {
         let bind_listener_limit = config.bind_listener_limit;
         let bind_listener_permits = Arc::new(
             Semaphore::new(bind_listener_limit)
@@ -52,8 +56,10 @@ where
 
         Self {
             config: Arc::new(config),
+            parser: Arc::new(parser),
             bind_listener_permits,
             conn_socket_permits,
+            dispatcher,
             dispatch_sender,
             dispatch_receiver,
             shutdown_receiver,
@@ -79,14 +85,15 @@ where
             self.listener_permit().await,
             self.conn_socket_permits.clone(),            
             self.config.clone(),
+            self.parser.clone(),
             self.dispatch_sender.clone(), 
-            self.shutdown_receiver.resubscribe()
+            self.shutdown_receiver.resubscribe(),
         )
     }
 
     pub async fn dispatch(&mut self) {
         if let Some(message) = self.dispatch_receiver.recv().await {
-            let dispatcher = &self.config.dispatch_instance;
+            let dispatcher = &self.dispatcher;
             match message {
                 Message::Bound(message) => {
                     (dispatcher.bound_message)(message.listener, message.err).await;

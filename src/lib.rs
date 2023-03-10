@@ -11,7 +11,6 @@ pub use net::socket::Socket;
 pub use net::message::Message;
 pub use net::dispatch::Dispatcher;
 pub use net::frame::Parser;
-pub use net::frame::ExtParser;
 pub use net::frame::Frame;
 pub use net::connection::ConnectionReader;
 pub use net::connection::ConnectionWriter;

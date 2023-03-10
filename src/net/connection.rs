@@ -9,12 +9,12 @@ use tokio::sync::mpsc::Receiver;
 use crate::Error;
 use crate::Result;
 use crate::Frame;
-use crate::ExtParser;
+use crate::Parser;
 
 pub struct ConnectionReader<'a> {
     buf: BytesMut,
     stream: &'a mut ReadHalf<'a>,
-    parser: &'a ExtParser,
+    parser: &'a Parser,
 }
 
 pub struct ConnectionWriter<'a> {
@@ -23,7 +23,7 @@ pub struct ConnectionWriter<'a> {
 }
 
 impl<'a> ConnectionReader<'a> {
-    pub fn new(size: usize, stream: &'a mut ReadHalf<'a>, parser: &'a ExtParser) -> Self {
+    pub fn new(size: usize, stream: &'a mut ReadHalf<'a>, parser: &'a Parser) -> Self {
         Self { 
             buf: BytesMut::with_capacity(size),
             stream,
@@ -61,7 +61,7 @@ impl<'a> ConnectionReader<'a> {
 }
 
 impl<'a> ConnectionWriter<'a> {
-    pub fn new(_: usize, stream: &'a mut WriteHalf<'a>, receiver: &'a mut Receiver<Bytes>) -> Self {
+    pub fn new(stream: &'a mut WriteHalf<'a>, receiver: &'a mut Receiver<Bytes>) -> Self {
         Self { stream, receiver }
     }
 

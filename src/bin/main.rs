@@ -20,71 +20,63 @@ use tcp::Frame;
 use tcp::listener;
 use tcp::socket;
 
-struct Framer();
-impl Parser for Framer {
-    fn parse(&self, data: &mut Cursor<&BytesMut>) -> Frame {
-        let len = data.get_ref().len();
-        if len < mem::size_of::<u32>() {
-            return Frame::Continue;
-        }
-
-        let size = data.get_u32_le();
-        if len < size as usize {
-            return Frame::Continue;
-        }
-
-        Frame::Success(size)
+fn parse(data: &mut Cursor<&BytesMut>) -> Frame {
+    let len = data.get_ref().len();
+    if len < mem::size_of::<u32>() {
+        return Frame::Continue;
     }
+
+    let size = data.get_u32_le();
+    if len < size as usize {
+        return Frame::Continue;
+    }
+
+    Frame::Success(size)
 }
 
-async fn bound_message1(_listener: Arc<listener::Context>, _err: Error) {
-    //println!("bind listener success");
+
+async fn bound_message(_listener: Arc<listener::Context>, _err: Error) {
 }
 
-async fn connected_message1(_listener: Arc<listener::Context>, _socket: Arc<socket::Context>) {
-    //println!("listener accept success");
+async fn connected_message(_listener: Arc<listener::Context>, _socket: Arc<socket::Context>) {
 }
 
-async fn received_message1(socket: Arc<socket::Context>, bytes: bytes::Bytes) {
-    //println!("received message success, message size: {}", bytes.len());
+async fn received_message(socket: Arc<socket::Context>, bytes: bytes::Bytes) {
     socket.send(bytes).await;
 }
 
-async fn error_message1(_socket: Arc<socket::Context>, _err: Error) {
-    //println!("error message success");
+async fn error_message(_socket: Arc<socket::Context>, _err: Error) {
 }
 
-async fn terminated_message1(_socket: Arc<socket::Context>) {
-    //println!("terminate message success");
+async fn terminated_message(_socket: Arc<socket::Context>) {
 }
 
-async fn fatal_message1(_err: Error) {
-    //println!("fatal message success");
+async fn fatal_message(_err: Error) {
 }
 
-struct Server<F1, F2, F3, F4, F5, F6>
+struct Server<FA, FB, FC, FD, FE, FF>
 where
-    F1: Future<Output = ()> + Sync + Send + 'static,
-    F2: Future<Output = ()> + Sync + Send + 'static,
-    F3: Future<Output = ()> + Sync + Send + 'static,
-    F4: Future<Output = ()> + Sync + Send + 'static,
-    F5: Future<Output = ()> + Sync + Send + 'static,
-    F6: Future<Output = ()> + Sync + Send + 'static {
-    component: Component<F1, F2, F3, F4, F5, F6>,
+    FA: Future<Output = ()> + Sync + Send + 'static,
+    FB: Future<Output = ()> + Sync + Send + 'static,
+    FC: Future<Output = ()> + Sync + Send + 'static,
+    FD: Future<Output = ()> + Sync + Send + 'static,
+    FE: Future<Output = ()> + Sync + Send + 'static,
+    FF: Future<Output = ()> + Sync + Send + 'static {
+    component: Component<FA, FB, FC, FD, FE, FF>,
     listener: Option<Listener>,
 }
 
-impl<F1, F2, F3, F4, F5, F6> Server<F1, F2, F3, F4, F5, F6>
+impl<FA, FB, FC, FD, FE, FF> Server<FA, FB, FC, FD, FE, FF>
 where
-    F1: Future<Output = ()> + Sync + Send + 'static,
-    F2: Future<Output = ()> + Sync + Send + 'static,
-    F3: Future<Output = ()> + Sync + Send + 'static,
-    F4: Future<Output = ()> + Sync + Send + 'static,
-    F5: Future<Output = ()> + Sync + Send + 'static,
-    F6: Future<Output = ()> + Sync + Send + 'static {
-    fn new(config: Config<F1, F2, F3, F4, F5, F6>) -> Self {
+    FA: Future<Output = ()> + Sync + Send + 'static,
+    FB: Future<Output = ()> + Sync + Send + 'static,
+    FC: Future<Output = ()> + Sync + Send + 'static,
+    FD: Future<Output = ()> + Sync + Send + 'static,
+    FE: Future<Output = ()> + Sync + Send + 'static,
+    FF: Future<Output = ()> + Sync + Send + 'static {
+    fn new(config: Config, parser: Parser, dispatcher: Dispatcher<FA, FB, FC, FD, FE, FF>) -> Self {
         Server {
-            component: Component::new(config),
+            component: Component::new(config, parser, dispatcher),
             listener: None,
         }
     }
@@ -98,10 +90,11 @@ where
         }
     }
 
-    fn start(ip: String, port: u16, config: Config<F1, F2, F3, F4, F5, F6>, 
+    fn start(ip: String, port: u16, config: Config, parser: Parser, 
+        dispatcher: Dispatcher<FA, FB, FC, FD, FE, FF>,
         mut shutdown: mpsc::Receiver<()>) -> JoinHandle<()> {
         tokio::spawn(async move {
-            let mut server = Server::new(config);
+            let mut server = Server::new(config, parser, dispatcher);
             server.listener = Some(server.component.listen(&ip, port).await);
             server.run(&mut shutdown).await;
             server.component.shutdown().await;
@@ -113,27 +106,28 @@ where
 async fn main() {
     let config = Config::new(
         4096, 
-        4096, 
         16,
         16,
         3000,
         4096,
-        Dispatcher {
-            bound_message: bound_message1,
-            connected_message: connected_message1,
-            received_message: received_message1,
-            error_message: error_message1,
-            fatal_message: fatal_message1,
-            terminated_message: terminated_message1,
-        },
-        Box::new(Framer()),
     );
+    let parser = Parser { parse };
+    let dispatcher = Dispatcher {
+        bound_message,
+        connected_message,
+        received_message,
+        error_message,
+        fatal_message,
+        terminated_message,
+    };
 
     let (shutdown_sender, shutdown_receiver) = mpsc::channel(1);
     let server = Server::start(
         "127.0.0.1".to_string(), 
         6668, 
         config,
+        parser,
+        dispatcher,
         shutdown_receiver
     );
 

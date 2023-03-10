@@ -12,6 +12,7 @@ use tokio::sync::broadcast::Receiver;
 use tokio::sync::OwnedSemaphorePermit;
 use crate::Config;
 use crate::Message;
+use crate::Parser;
 use crate::ConnectionReader;
 use crate::ConnectionWriter;
 
@@ -27,16 +28,9 @@ pub struct Context {
 }
 
 impl Socket {
-    pub fn new<F1, F2, F3, F4, F5, F6>(mut stream: TcpStream, permit: OwnedSemaphorePermit,
-        config: Arc<Config<F1, F2, F3, F4, F5, F6>>, dispatch_sender: Sender<Message>, 
-        mut shutdown: Receiver<()>) -> Self 
-    where
-        F1: Future<Output = ()> + Sync + Send + 'static,
-        F2: Future<Output = ()> + Sync + Send + 'static,
-        F3: Future<Output = ()> + Sync + Send + 'static,
-        F4: Future<Output = ()> + Sync + Send + 'static,
-        F5: Future<Output = ()> + Sync + Send + 'static,
-        F6: Future<Output = ()> + Sync + Send + 'static {        
+    pub fn new(mut stream: TcpStream, permit: OwnedSemaphorePermit,
+        config: Arc<Config>, parser: Arc<Parser>, dispatch_sender: Sender<Message>, 
+        mut shutdown: Receiver<()>) -> Self {        
         let peer_addr = stream.peer_addr().unwrap();
         let local_addr = stream.local_addr().unwrap();
         let (request_sender, mut request_receiver) = mpsc::channel(
@@ -48,8 +42,8 @@ impl Socket {
         tokio::spawn(async move {
             let (mut reader, mut writer) = stream.split();
             select! {
-                _ = running_context.read(&mut reader, &config) => (),
-                _ = running_context.write(&mut writer, &config, &mut request_receiver) => (),
+                _ = running_context.read(&mut reader, &config, &parser) => (),
+                _ = running_context.write(&mut writer, &mut request_receiver) => (),
                 _ = shutdown.recv() => {
                     drop(permit);
                 }
@@ -85,19 +79,12 @@ impl Context {
         let _ = self.request_sender.send(bytes).await;
     }
 
-    async fn read<'a, F1, F2, F3, F4, F5, F6>(self: &Arc<Context>, stream: &'a mut ReadHalf<'a>, 
-        config: &'a Arc<Config<F1, F2, F3, F4, F5, F6>>)
-    where
-        F1: Future<Output = ()> + Sync + Send + 'static,
-        F2: Future<Output = ()> + Sync + Send + 'static,
-        F3: Future<Output = ()> + Sync + Send + 'static,
-        F4: Future<Output = ()> + Sync + Send + 'static,
-        F5: Future<Output = ()> + Sync + Send + 'static,
-        F6: Future<Output = ()> + Sync + Send + 'static {
+    async fn read<'a>(self: &Arc<Context>, stream: &'a mut ReadHalf<'a>, 
+        config: &Config, parser: &'a Parser) {
         let mut connection = ConnectionReader::new(
             config.socket_recv_buf_size, 
             stream, 
-            &config.parser_instance
+            parser,
         );
         loop {
             let result = connection.read_frame().await;
@@ -126,17 +113,9 @@ impl Context {
         }
     }
 
-    async fn write<'a, F1, F2, F3, F4, F5, F6>(self: &Arc<Context>, stream: &'a mut WriteHalf<'a>, 
-        config: &'a Arc<Config<F1, F2, F3, F4, F5, F6>>, request_receiver: &'a mut mpsc::Receiver<Bytes>)
-    where
-        F1: Future<Output = ()> + Sync + Send + 'static,
-        F2: Future<Output = ()> + Sync + Send + 'static,
-        F3: Future<Output = ()> + Sync + Send + 'static,
-        F4: Future<Output = ()> + Sync + Send + 'static,
-        F5: Future<Output = ()> + Sync + Send + 'static,
-        F6: Future<Output = ()> + Sync + Send + 'static {
+    async fn write<'a>(self: &Arc<Context>, stream: &'a mut WriteHalf<'a>, 
+        request_receiver: &'a mut mpsc::Receiver<Bytes>) {
         let mut connection = ConnectionWriter::new(
-            config.socket_send_buf_size, 
             stream,
             request_receiver
         );

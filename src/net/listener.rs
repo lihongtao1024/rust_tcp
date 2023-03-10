@@ -1,5 +1,4 @@
 use std::sync::Arc;
-use std::future::Future;
 use tokio::select;
 use tokio::net::TcpListener;
 use tokio::sync::broadcast;
@@ -8,6 +7,7 @@ use tokio::sync::mpsc;
 use tokio::sync::Semaphore;
 use crate::Error;
 use crate::Config;
+use crate::Parser;
 use crate::Message;
 use crate::Socket;
 
@@ -21,16 +21,9 @@ pub struct Context {
 }
 
 impl Listener {
-    pub fn new<F1, F2, F3, F4, F5, F6>(addr: String, permit: OwnedSemaphorePermit, 
-        conn_socket_permits: Arc<Semaphore>, config: Arc<Config<F1, F2, F3, F4, F5, F6>>, 
-        dispatch_sender: mpsc::Sender<Message>, shutdown: broadcast::Receiver<()>) -> Listener 
-    where
-        F1: Future<Output = ()> + Sync + Send + 'static,
-        F2: Future<Output = ()> + Sync + Send + 'static,
-        F3: Future<Output = ()> + Sync + Send + 'static,
-        F4: Future<Output = ()> + Sync + Send + 'static,
-        F5: Future<Output = ()> + Sync + Send + 'static,
-        F6: Future<Output = ()> + Sync + Send + 'static {
+    pub fn new(addr: String, permit: OwnedSemaphorePermit, conn_socket_permits: Arc<Semaphore>, 
+        config: Arc<Config>, parser: Arc<Parser>, dispatch_sender: mpsc::Sender<Message>,
+        shutdown: broadcast::Receiver<()>) -> Listener {
         let context = Arc::new(Context {
             dispatch_sender,
             conn_socket_permits,
@@ -40,7 +33,7 @@ impl Listener {
         let mut running_shutdown = shutdown.resubscribe();
         tokio::spawn(async move {
             select! {
-                _ = running_context.run(addr, &config, shutdown) => (),
+                _ = running_context.run(addr, &config, &parser, shutdown) => (),
                 _ = running_shutdown.recv() => {
                     drop(permit);
                 },
@@ -56,15 +49,8 @@ impl Listener {
 }
 
 impl Context {
-    async fn run<F1, F2, F3, F4, F5, F6>(self: &Arc<Self>, addr: String, 
-        config: &Arc<Config<F1, F2, F3, F4, F5, F6>>, shutdown: broadcast::Receiver<()>)
-    where
-        F1: Future<Output = ()> + Sync + Send + 'static,
-        F2: Future<Output = ()> + Sync + Send + 'static,
-        F3: Future<Output = ()> + Sync + Send + 'static,
-        F4: Future<Output = ()> + Sync + Send + 'static,
-        F5: Future<Output = ()> + Sync + Send + 'static,
-        F6: Future<Output = ()> + Sync + Send + 'static {
+    async fn run(self: &Arc<Self>, addr: String, config: &Arc<Config>,
+        parser: &Arc<Parser>, shutdown: broadcast::Receiver<()>) {
         let result = TcpListener::bind(addr).await;
         if let Err(err) = result {
             Message::send_fatal_message(
@@ -87,6 +73,7 @@ impl Context {
                 socket,
                 permit,
                 config.clone(),
+                parser.clone(),
                 self.dispatch_sender.clone(), 
                 shutdown.resubscribe()
             );
