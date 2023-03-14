@@ -1,29 +1,28 @@
-use std::io::Cursor;
-use bytes::Bytes;
-use bytes::BytesMut;
-use tokio::io::AsyncReadExt;
-use tokio::io::AsyncWriteExt;
-use tokio::net::tcp::ReadHalf;
-use tokio::net::tcp::WriteHalf;
-use tokio::sync::mpsc::Receiver;
 use crate::Error;
 use crate::Result;
 use crate::Frame;
 use crate::Parser;
+use tokio::io::AsyncReadExt;
+use tokio::io::AsyncWriteExt;
+use tokio::io::ReadHalf;
+use tokio::io::WriteHalf;
+use tokio::net::TcpStream;
+use bytes::Bytes;
+use bytes::BytesMut;
+use std::io::Cursor;
 
 pub struct ConnectionReader<'a> {
     buf: BytesMut,
-    stream: &'a mut ReadHalf<'a>,
+    stream: &'a mut ReadHalf<TcpStream>,
     parser: &'a Parser,
 }
 
 pub struct ConnectionWriter<'a> {
-    stream: &'a mut WriteHalf<'a>,
-    receiver: &'a mut Receiver<Bytes>,
+    stream: &'a mut WriteHalf<TcpStream>,
 }
 
 impl<'a> ConnectionReader<'a> {
-    pub fn new(size: usize, stream: &'a mut ReadHalf<'a>, parser: &'a Parser) -> Self {
+    pub fn new(size: usize, stream: &'a mut ReadHalf<TcpStream>, parser: &'a Parser) -> Self {
         Self { 
             buf: BytesMut::with_capacity(size),
             stream,
@@ -61,15 +60,12 @@ impl<'a> ConnectionReader<'a> {
 }
 
 impl<'a> ConnectionWriter<'a> {
-    pub fn new(stream: &'a mut WriteHalf<'a>, receiver: &'a mut Receiver<Bytes>) -> Self {
-        Self { stream, receiver }
+    pub fn new(stream: &'a mut WriteHalf<TcpStream>) -> Self {
+        Self { stream }
     }
 
-    pub async fn write_frame(&mut self) -> Result<()> {
-        if let Some(bytes) = self.receiver.recv().await {
-            self.stream.write_all(bytes.as_ref()).await?
-        }
-
+    pub async fn write_frame(&mut self, bytes: Bytes) -> Result<()> {
+        self.stream.write_all(bytes.as_ref()).await?;
         Ok(())
     }
 }

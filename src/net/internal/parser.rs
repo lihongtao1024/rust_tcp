@@ -1,7 +1,7 @@
-use bytes::BytesMut;
-use std::io::Cursor;
 use crate::Error;
 use crate::Result;
+use bytes::BytesMut;
+use std::io::Cursor;
 
 pub enum Frame {
     Fatal,

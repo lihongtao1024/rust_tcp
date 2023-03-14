@@ -1,24 +1,23 @@
-use bytes::Buf;
-use bytes::BytesMut;
-use std::mem;
-use std::sync::Arc;
-use std::future::Future;
-use std::io::Cursor;
-use tokio::io;
-use tokio::io::AsyncBufReadExt;
-use tokio::io::BufReader;
-use tokio::task::JoinHandle;
-use tokio::select;
-use tokio::sync::mpsc;
-use tcp::Listener;
-use tcp::Config;
 use tcp::Error;
-use tcp::Component;
-use tcp::Dispatcher;
-use tcp::Parser;
 use tcp::Frame;
-use tcp::listener;
-use tcp::socket;
+use tcp::Config;
+use tcp::Parser;
+use tcp::Manager;
+use tcp::Listener;
+use tcp::Socket;
+use tcp::Dispatcher;
+use bytes::Buf;
+use bytes::Bytes;
+use bytes::BytesMut;
+use std::io::BufRead;
+use std::mem;
+use std::io::Cursor;
+use std::sync::Arc;
+use std::thread;
+use std::io::BufReader;
+use std::io::stdin;
+use tokio::sync::broadcast;
+use tokio::sync::broadcast::error;
 
 fn parse(data: &mut Cursor<&BytesMut>) -> Frame {
     let len = data.get_ref().len();
@@ -34,120 +33,78 @@ fn parse(data: &mut Cursor<&BytesMut>) -> Frame {
     Frame::Success(size)
 }
 
+fn listen_fatal(_: Arc<Listener>, _: Error) {
 
-async fn bound_message(_listener: Arc<listener::Context>, _err: Error) {
 }
 
-async fn connected_message(_listener: Arc<listener::Context>, _socket: Arc<socket::Context>) {
+fn connect_fatal(_: Arc<Socket>, _: Error) {
+
 }
 
-async fn received_message(socket: Arc<socket::Context>, bytes: bytes::Bytes) {
-    socket.send(bytes).await;
+fn connect_done(_: Option<Arc<Listener>>, _: Arc<Socket>) {
+
 }
 
-async fn error_message(_socket: Arc<socket::Context>, _err: Error) {
+fn receive_done(socket: Arc<Socket>, data: Bytes) {
+    //println!("receive data: {}", data.len());
+    socket.send_to(data);
 }
 
-async fn terminated_message(_socket: Arc<socket::Context>) {
+fn connect_abort(_: Arc<Socket>, _: Error) {
+
 }
 
-async fn fatal_message(_err: Error) {
+fn connect_terminate(_: Arc<Socket>) {
+
 }
 
-struct Server<FA, FB, FC, FD, FE, FF>
-where
-    FA: Future<Output = ()> + Sync + Send + 'static,
-    FB: Future<Output = ()> + Sync + Send + 'static,
-    FC: Future<Output = ()> + Sync + Send + 'static,
-    FD: Future<Output = ()> + Sync + Send + 'static,
-    FE: Future<Output = ()> + Sync + Send + 'static,
-    FF: Future<Output = ()> + Sync + Send + 'static {
-    component: Component<FA, FB, FC, FD, FE, FF>,
-    listener: Option<Listener>,
-}
-
-impl<FA, FB, FC, FD, FE, FF> Server<FA, FB, FC, FD, FE, FF>
-where
-    FA: Future<Output = ()> + Sync + Send + 'static,
-    FB: Future<Output = ()> + Sync + Send + 'static,
-    FC: Future<Output = ()> + Sync + Send + 'static,
-    FD: Future<Output = ()> + Sync + Send + 'static,
-    FE: Future<Output = ()> + Sync + Send + 'static,
-    FF: Future<Output = ()> + Sync + Send + 'static {
-    fn new(config: Config, parser: Parser, dispatcher: Dispatcher<FA, FB, FC, FD, FE, FF>) -> Self {
-        Server {
-            component: Component::new(config, parser, dispatcher),
-            listener: None,
-        }
-    }
-
-    async fn run(&mut self, shutdown: &mut mpsc::Receiver<()>) {
-        loop {
-            select! {
-                _ = self.component.dispatch() => (),
-                _ = shutdown.recv() => break
-            }
-        }
-    }
-
-    fn start(ip: String, port: u16, config: Config, parser: Parser, 
-        dispatcher: Dispatcher<FA, FB, FC, FD, FE, FF>,
-        mut shutdown: mpsc::Receiver<()>) -> JoinHandle<()> {
-        tokio::spawn(async move {
-            let mut server = Server::new(config, parser, dispatcher);
-            server.listener = Some(server.component.listen(&ip, port).await);
-            server.run(&mut shutdown).await;
-            server.component.shutdown().await;
-        })
-    }
-}
-
-#[tokio::main]
-async fn main() {
+fn main() {
     let config = Config::new(
-        4096, 
-        16,
-        16,
+        16, 
         3000,
-        4096,
     );
+
     let parser = Parser { parse };
-    let dispatcher = Dispatcher {
-        bound_message,
-        connected_message,
-        received_message,
-        error_message,
-        fatal_message,
-        terminated_message,
-    };
+    let (shutdown_tx, _) = broadcast::channel(1);
+    let shutdown_rx1 = shutdown_tx.subscribe();
+    let mut shutdown_rx2 = shutdown_tx.subscribe();
+    let running = thread::spawn(move || {
+        let dispatch = Dispatcher::build(
+            listen_fatal,
+            connect_fatal,
+            connect_done,
+            receive_done,
+            connect_abort,
+            connect_terminate,
+        );
+        let mgr = Manager::new(
+            config, 
+            dispatch, 
+            parser, 
+            shutdown_rx1
+        );
+        let _ = mgr.listen("127.0.0.1:6668".parse().unwrap());
 
-    let (shutdown_sender, shutdown_receiver) = mpsc::channel(1);
-    let server = Server::start(
-        "127.0.0.1".to_string(), 
-        6668, 
-        config,
-        parser,
-        dispatcher,
-        shutdown_receiver
-    );
-
-    let _ = tokio::spawn(async move {
-        let mut reader = BufReader::new(io::stdin()).lines();
-
-        loop {
-            let result = reader.next_line().await;
-            if result.is_err() {
-                break;
+       loop {
+            match shutdown_rx2.try_recv() {
+                Err(error::TryRecvError::Empty) => (),
+                _ => break,
             }
 
-            if let Some(line) = result.unwrap() {
-                if line.eq(&"stop".to_string()) {
-                    break;
-                }
+            mgr.dispatch(10);
+        }                
+    });
+
+    let console = thread::spawn(move || {
+        let mut reader = BufReader::new(stdin()).lines();
+        while let Ok(line) = reader.next().unwrap() {
+            if line.eq("stop") {
+                drop(shutdown_tx);
+                return;
             }
         }
+    });  
 
-        shutdown_sender.send(()).await.unwrap();
-        let _ = server.await;
-    }).await;
+    let _ = console.join();
+    let _ = running.join();
 }
