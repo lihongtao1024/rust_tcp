@@ -65,9 +65,23 @@ impl Manager {
             self.dispatch_tx.clone(),
             self.shutdown_tx.subscribe(),
         );
+
         let event = Event::Listen(addr, listener.clone());
         self.event_tx.send(event)?;
         Ok::<Arc<Listener>, _>(listener)
+    }
+
+    pub fn connect(self: &Arc<Manager>, addr: SocketAddr) -> Result<Arc<Socket>> {
+        let socket = Socket::new(
+            Arc::downgrade(self), 
+            self.parser.clone(), 
+            self.dispatch_tx.clone(),
+            self.shutdown_tx.subscribe(),
+        );
+
+        let event = Event::Connect(addr, socket.clone());
+        self.event_tx.send(event)?;
+        Ok::<Arc<Socket>, _>(socket)
     }
 
     pub fn send(self: &Arc<Manager>, socket: &Arc<Socket>, bytes: Bytes) -> Result<()> {
@@ -151,6 +165,14 @@ impl Manager {
                         .await
                         .unwrap();
                     listener.bind(permit, *addr, self.connection_semaphore.clone()).await;
+                },
+                Event::Connect(addr, socket) => {
+                    let permit = self.connection_semaphore
+                        .clone()
+                        .acquire_owned()
+                        .await
+                        .unwrap();
+                    socket.connect(permit, *addr).await;
                 },
                 Event::Send(socket, bytes) => {
                     socket.send(bytes.clone()).await;

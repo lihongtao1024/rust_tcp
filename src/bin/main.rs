@@ -42,7 +42,7 @@ fn connect_fatal(_: Arc<Socket>, _: Error) {
 }
 
 fn connect_done(_: Option<Arc<Listener>>, _: Arc<Socket>) {
-
+    
 }
 
 fn receive_done(socket: Arc<Socket>, data: Bytes) {

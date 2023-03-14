@@ -1,3 +1,4 @@
+use crate::Error;
 use crate::Parser;
 use crate::Message;
 use crate::Manager;
@@ -13,6 +14,7 @@ use tokio::io;
 use tokio::io::ReadHalf;
 use tokio::io::WriteHalf;
 use tokio::net::TcpStream;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::Weak;
 
@@ -76,6 +78,20 @@ impl Socket {
         *writer = Some(write);
 
         self.start(permit);
+    }
+
+    pub async fn connect(self: &Arc<Socket>, permit: OwnedSemaphorePermit, addr: SocketAddr) {
+        let result = TcpStream::connect(addr).await;
+        if let Err(err) = result {
+            let mut state = self.state.write().await;
+            *state = State::Disconnected;
+
+            let message = Message::ConnectFatal(self.clone(), Error::Io(err));
+            let _ = self.dispatcher.send(message);
+            return;
+        }
+
+        self.accept(permit, result.unwrap()).await;
     }
 
     pub async fn send(self: &Arc<Socket>, bytes: Bytes) {
