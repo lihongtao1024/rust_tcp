@@ -7,56 +7,8 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug unit tests in library 'tcp'",
-            "cargo": {
-                "args": [
-                    "test",
-                    "--no-run",
-                    "--lib",
-                    "--package=tcp"
-                ],
-                "filter": {
-                    "name": "tcp",
-                    "kind": "lib"
-                }
-            },
-            "args": [],
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            "type": "lldb",
-            "request": "launch",
-            "name": "Debug executable 'main'",
-            "cargo": {
-                "args": [
-                    "build",
-                    "--bin=main",
-                    "--package=tcp"
-                ],
-                "filter": {
-                    "name": "main",
-                    "kind": "bin"
-                }
-            },
-            "args": [],
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            "type": "lldb",
-            "request": "launch",
-            "name": "Debug unit tests in executable 'main'",
-            "cargo": {
-                "args": [
-                    "test",
-                    "--no-run",
-                    "--bin=main",
-                    "--package=tcp"
-                ],
-                "filter": {
-                    "name": "main",
-                    "kind": "bin"
-                }
-            },
+            "name": "Debug",
+            "program": "${workspaceFolder}/target/debug/client",
             "args": [],
             "cwd": "${workspaceFolder}"
         }

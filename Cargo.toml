@@ -1,15 +1,6 @@
-[package]
-name = "tcp"
-version = "0.1.0"
-edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
-#futures = { version = "0.3" }
-tokio = { version = "1", features = ["full"] }
-bytes = "1"
-
-[[bin]]
-name = "main"
-path = "src/bin/main.rs"
+[workspace]
+members = [
+    "tcp",
+    "server",
+    "client",
+]

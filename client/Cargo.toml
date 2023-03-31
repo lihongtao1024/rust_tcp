@@ -1,0 +1,17 @@
+[package]
+name = "client"
+version = "0.1.0"
+edition = "2021"
+authors = ["蓦然<71164325@qq.com>"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+clipboard = { version = "0.5" }
+imgui = { version = "^0.10", features = ["tables-api"] }
+glium = { version = "0.32.1", default-features = true }
+imgui-glium-renderer = { version = "0.10.0" }
+imgui-winit-support = { version = "0.10.0" }
+tokio = { version = "1", features = ["full"] }
+bytes = { version = "1" }
+tcp = { path = "../tcp" }
