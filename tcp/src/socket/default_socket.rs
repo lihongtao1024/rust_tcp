@@ -12,8 +12,8 @@ use tokio::select;
 use tokio::sync::OwnedSemaphorePermit;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender as MpscSender;
-use tokio::sync::mpsc::UnboundedSender;
-use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::sync::mpsc::Receiver as MpscReceiver;
+use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::Sender as BroadcastSender;
 use tokio::sync::broadcast::Receiver as BroadcastReceiver;
@@ -49,8 +49,8 @@ pub struct DefaultSocket {
     local: SyncUnsafeCell<Option<SocketAddr>>,
     peer: SyncUnsafeCell<Option<SocketAddr>>,
     message: MpscSender<Message>,
-    etx: UnboundedSender<Event>,
-    erx: SyncUnsafeCell<Option<UnboundedReceiver<Event>>>,
+    etx: MpscSender<Event>,
+    erx: SyncUnsafeCell<Option<MpscReceiver<Event>>>,
     shutdown: BroadcastReceiver<()>,
     terminate: BroadcastSender<()>,
     tag: SyncUnsafeCell<Option<usize>>,
@@ -87,9 +87,15 @@ impl Display for DefaultSocket {
 
 impl Socket for DefaultSocket {
     fn send(self: Arc<Self>, bytes: Bytes) -> Result<(), Error> {
-        if State::Done as u8 == self.state.load(Ordering::SeqCst) {
-            self.etx.send(Event::Send(bytes))?;
-            return Ok(());
+        if State::Done as u8 == self.state.load(Ordering::SeqCst) {            
+            match self.etx.try_send(Event::Send(bytes.clone())) {
+                Ok(_) => return Ok(()),
+                Err(TrySendError::Closed(_)) => (),
+                Err(TrySendError::Full(_)) => {
+                    self.etx.blocking_send(Event::Send(bytes))?;
+                    return Ok(());
+                },
+            }
         }
 
         Err(Error::Module("socket has not been established"))
@@ -159,7 +165,7 @@ impl AsyncSocket for DefaultSocket {
 impl SocketCreator for DefaultSocket {
     fn new(builder: SocketBuilder) -> Arc<Self> {
         let (terminate, _) = broadcast::channel(1);
-        let (etx, erx) = mpsc::unbounded_channel();
+        let (etx, erx) = mpsc::channel(builder.events);
         Arc::new(
             Self {
                 state: AtomicU8::new(State::Connecting as u8),
@@ -179,7 +185,7 @@ impl SocketCreator for DefaultSocket {
 
 impl DefaultSocket {
     fn start(self: &Arc<Self>, permit: OwnedSemaphorePermit, reader: OwnedReadHalf,
-        writer: OwnedWriteHalf, receiver: UnboundedReceiver<Event>) -> JoinHandle<()> {
+        writer: OwnedWriteHalf, receiver: MpscReceiver<Event>) -> JoinHandle<()> {
         let cloned = self.clone();
         let mut shutdown = self.shutdown.resubscribe();
         let mut terminate = self.terminate.subscribe();
@@ -240,7 +246,7 @@ impl DefaultSocket {
         }
     }
 
-    async fn write(self: &Arc<Self>, mut writer: OwnedWriteHalf, mut erx: UnboundedReceiver<Event>) {
+    async fn write(self: &Arc<Self>, mut writer: OwnedWriteHalf, mut erx: MpscReceiver<Event>) {
         let mut connection = ConnectionWriter::new(&mut writer);
 
         while let Some(event) = erx.recv().await {
