@@ -223,8 +223,7 @@ impl DefaultSocket {
         );
 
         loop {
-            let result = connection.read_frame().await;
-            match result {
+            match connection.read_frame().await {
                 Ok(bytes) => {
                     match bytes {
                         Some(bytes) => {
