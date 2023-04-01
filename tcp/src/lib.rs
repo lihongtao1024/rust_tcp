@@ -1,3 +1,5 @@
+#![feature(sync_unsafe_cell)]
+
 mod error;
 mod framer;
 mod message;

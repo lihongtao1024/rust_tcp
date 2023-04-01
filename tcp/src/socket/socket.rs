@@ -19,6 +19,6 @@ pub trait Socket: AsyncSocket + Send + Sync + Debug + Display + 'static {
     fn disconnect(self: Arc<Self>);
     fn local_addr(self: Arc<Self>) -> Option<SocketAddr>;
     fn peer_addr(self: Arc<Self>) -> Option<SocketAddr>;
-    fn set_tag(self: Arc<Self>, tag: u64);
-    fn tag(self: Arc<Self>) -> u64;
+    fn set_tag(self: Arc<Self>, tag: usize);
+    fn tag(self: Arc<Self>) -> Option<usize>;
 }

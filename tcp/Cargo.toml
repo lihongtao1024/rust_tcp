@@ -10,3 +10,6 @@ authors = ["蓦然<71164325@qq.com>"]
 async-trait = { version = "0.1.68" }
 tokio = { version = "1", features = ["full"] }
 bytes = { version = "1" }
+
+[features]
+sync_unsafe_cell = []

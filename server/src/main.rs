@@ -31,15 +31,14 @@ impl Manager {
 
 impl Dispatcher for Manager {
     fn listen_fatal(&mut self, _listener: Arc<dyn Listener>, _err: Error) {
-        //println!("listen_fatal: [{}, {}]", _listener, _err);
+        println!("listen_fatal: [{}, {}]", _listener, _err);
     }
 
     fn connect_fatal(&mut self, _socket: Arc<dyn Socket>, _err: Error) {
-        //println!("connect_fatal: [{}, {}]", _socket, _err);
+        println!("connect_fatal: [{}, {}]", _socket, _err);
     }
 
-    fn connect_done(&mut self, _listener: Option<Arc<dyn Listener>>, _socket: Arc<dyn Socket>) {
-        /*
+    fn connect_done(&mut self, _listener: Option<Arc<dyn Listener>>, _socket: Arc<dyn Socket>) {        
         match _listener {
             Some(listener) => {
                 println!("connect_done: [{}, {}]", listener, _socket);
@@ -50,20 +49,20 @@ impl Dispatcher for Manager {
             },
         };
         //_socket.disconnect();
-        */
+        
     }
 
     fn receive_done(&mut self, _socket: Arc<dyn Socket>, _bytes: Bytes) {
+        println!("receive_done: [{}, {}]", _socket, _bytes.len());
         let _ = _socket.send(_bytes);
-        //println!("receive_done: [{}, {}]", _socket, _bytes.len());
     }
 
     fn connect_abort(&mut self, _socket: Arc<dyn Socket>, _err: Error) {
-        //println!("connect_abort: [{}, {}]", _socket, _err);
+        println!("connect_abort: [{}, {}]", _socket, _err);
     }
 
     fn connect_terminate(&mut self, _socket: Arc<dyn Socket>) {
-        //println!("connect_terminate: [{}]", _socket);
+        println!("connect_terminate: [{}]", _socket);
     }
 }
 
@@ -88,7 +87,7 @@ fn start(mut srx: BroadcastReceiver<()>) -> JoinHandle<()> {
         let duration = Duration::from_millis(1);
         loop {
             match srx.try_recv() {
-                Err(TryRecvError::Empty) =>(),
+                Err(TryRecvError::Empty) => (),
                 _ => {
                     tcp.close();
                     break;

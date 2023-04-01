@@ -21,10 +21,9 @@ use tokio::net::TcpStream;
 use tokio::net::tcp::OwnedReadHalf;
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::task::JoinHandle;
+use std::cell::SyncUnsafeCell;
 use std::sync::Arc;
-use std::sync::Mutex;
 use std::sync::atomic::AtomicU8;
-use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 use std::fmt::Debug;
 use std::fmt::Display;
@@ -47,14 +46,14 @@ enum State {
 pub struct DefaultSocket {
     state: AtomicU8,
     framer: Arc<dyn Framer>,
-    local: Mutex<Option<SocketAddr>>,
-    peer: Mutex<Option<SocketAddr>>,
+    local: SyncUnsafeCell<Option<SocketAddr>>,
+    peer: SyncUnsafeCell<Option<SocketAddr>>,
     message: MpscSender<Message>,
     etx: UnboundedSender<Event>,
-    erx: Mutex<Option<UnboundedReceiver<Event>>>,
+    erx: SyncUnsafeCell<Option<UnboundedReceiver<Event>>>,
     shutdown: BroadcastReceiver<()>,
     terminate: BroadcastSender<()>,
-    tag: AtomicU64,
+    tag: SyncUnsafeCell<Option<usize>>,
 }
 
 impl Debug for DefaultSocket {
@@ -68,13 +67,13 @@ impl Debug for DefaultSocket {
             _ => panic!("system error"),
         };
 
-        let local = self.local.lock().unwrap();
-        let peer = self.peer.lock().unwrap();
+        let local = unsafe { *self.local.get() };
+        let peer = unsafe { *self.peer.get() };
         write!(
-            f, 
+            f,
             "Socket: {{ state:{:?}, local:{:?}, peer:{:?} }}", 
-            state, 
-            local, 
+            state,
+            local,
             peer
         )
     }
@@ -109,19 +108,19 @@ impl Socket for DefaultSocket {
     }
 
     fn local_addr(self: Arc<Self>) -> Option<SocketAddr> {
-        *self.local.lock().unwrap()
+        unsafe { *self.local.get() }
     }
 
     fn peer_addr(self: Arc<Self>) -> Option<SocketAddr> {
-        *self.peer.lock().unwrap()
+        unsafe { *self.peer.get() }
     }
 
-    fn set_tag(self: Arc<Self>, tag: u64) {
-        self.tag.store(tag, Ordering::SeqCst);
+    fn set_tag(self: Arc<Self>, tag: usize) {
+        unsafe { *self.tag.get() = Some(tag) };
     }
 
-    fn tag(self: Arc<Self>) -> u64 {
-        self.tag.load(Ordering::SeqCst)
+    fn tag(self: Arc<Self>) -> Option<usize> {
+        unsafe { *self.tag.get() }
     }
 }
 
@@ -131,20 +130,17 @@ impl AsyncSocket for DefaultSocket {
         let (reader, writer) = stream.into_split();
         self.state.store(State::Done as u8, Ordering::SeqCst);
 
-        let mut local = self.local.lock().unwrap();
         let _ = reader.local_addr().and_then(|addr| {
-            *local = Some(addr);
+            unsafe { *self.local.get() = Some(addr); }
             Ok(())
         });
 
-        let mut peer = self.peer.lock().unwrap();
         let _ = reader.peer_addr().and_then(|addr| {
-            *peer = Some(addr);
+            unsafe { *self.peer.get() = Some(addr) };
             Ok(())
         });
 
-        let mut erx = self.erx.lock().unwrap();
-        self.start(permit, reader, writer, erx.take().unwrap());
+        self.start(permit, reader, writer, unsafe { (*self.erx.get()).take().unwrap() });
     }
 
     async fn connect(self: Arc<Self>, addr: SocketAddr, permit: OwnedSemaphorePermit) {
@@ -168,14 +164,14 @@ impl SocketCreator for DefaultSocket {
             Self {
                 state: AtomicU8::new(State::Connecting as u8),
                 framer: builder.framer,
-                local: Mutex::new(None),
-                peer: Mutex::new(None),
+                local: SyncUnsafeCell::new(None),
+                peer: SyncUnsafeCell::new(None),
                 message: builder.message,
                 etx,
-                erx: Mutex::new(Some(erx)),
+                erx: SyncUnsafeCell::new(Some(erx)),
                 shutdown: builder.shutdown,
                 terminate,
-                tag: AtomicU64::new(0),
+                tag: SyncUnsafeCell::new(None),
             }
         )
     }
