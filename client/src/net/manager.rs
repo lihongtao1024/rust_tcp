@@ -5,7 +5,6 @@ use tcp::Socket;
 use tcp::Builder;
 use tcp::Component;
 use tcp::DefaultComponent;
-use tcp::DefaultListener;
 use tcp::DefaultSocket;
 use std::net::SocketAddr;
 use std::mem;
@@ -75,11 +74,7 @@ pub fn start(srx: MpscReceiver<UiEvent>) -> JoinHandle<()> {
                             .listener(0)
                             .sockets(builder.conn)
                             .dispatcher(dispatcher)
-                            .build::<
-                                DefaultComponent,
-                                DefaultListener,
-                                DefaultSocket
-                            >()
+                            .build::<DefaultComponent, DefaultSocket>()
                     );
                 },
                 UiEvent::Stop => {

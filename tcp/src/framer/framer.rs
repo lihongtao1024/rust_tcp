@@ -17,7 +17,9 @@ pub trait Framer: Send + Sync {
         match self.parse(cursor) {
             Frame::Success(len) => Ok(len),
             Frame::Continue => Ok(0),
-            Frame::Fatal => Err(Error::Module("a fatal error occurred while parsing the frame")),
+            Frame::Fatal => Err(
+                Error::Module(String::from("a fatal error occurred while parsing the frame"))
+            ),
         }
     }
 }

@@ -6,6 +6,7 @@ use tokio::sync::mpsc::Sender as MpscSender;
 use tokio::sync::broadcast::Receiver as BroadcastReceiver;
 
 pub struct Builder {
+    pub(crate) socket_events: usize,
     pub(crate) addr: SocketAddr,
     pub(crate) framer: Arc<dyn Framer>,
     pub(crate) message: MpscSender<Message>,
@@ -13,8 +14,8 @@ pub struct Builder {
 }
 
 impl Builder {
-    pub(crate) fn new(addr: SocketAddr, framer: Arc<dyn Framer>, 
+    pub(crate) fn new(socket_events: usize, addr: SocketAddr, framer: Arc<dyn Framer>, 
         message: MpscSender<Message>, shutdown: BroadcastReceiver<()>) -> Self {
-        Self { addr, framer, message, shutdown }
+        Self { socket_events, addr, framer, message, shutdown }
     }
 }

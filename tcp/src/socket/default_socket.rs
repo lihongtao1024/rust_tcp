@@ -88,17 +88,17 @@ impl Display for DefaultSocket {
 impl Socket for DefaultSocket {
     fn send(self: Arc<Self>, bytes: Bytes) -> Result<(), Error> {
         if State::Done as u8 == self.state.load(Ordering::SeqCst) {            
-            match self.etx.try_send(Event::Send(bytes.clone())) {
+            match self.etx.try_send(Event::Send(bytes)) {
                 Ok(_) => return Ok(()),
-                Err(TrySendError::Closed(_)) => (),
-                Err(TrySendError::Full(_)) => {
-                    self.etx.blocking_send(Event::Send(bytes))?;
+                Err(err @ TrySendError::Closed(_)) => return Err(err.into()),
+                Err(TrySendError::Full(event)) => {
+                    self.etx.blocking_send(event)?;
                     return Ok(());
                 },
             }
         }
 
-        Err(Error::Module("socket has not been established"))
+        Err(Error::Module(String::from("socket has not been established")))
     }
     
     fn disconnect(self: Arc<Self>) {

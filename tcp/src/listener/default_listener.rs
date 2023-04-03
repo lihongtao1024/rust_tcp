@@ -32,6 +32,7 @@ enum State {
 }
 
 pub struct DefaultListener {
+    socket_events: usize,
     addr: SocketAddr,
     state: AtomicU8,
     framer: Arc<dyn Framer>,
@@ -86,6 +87,7 @@ impl ListenerCreator for DefaultListener {
     fn new(builder: ListenerBuilder) -> Arc<Self> {
         let (close, _) = broadcast::channel(1);
         Arc::new(Self {
+            socket_events: builder.socket_events,
             addr: builder.addr,
             state: AtomicU8::new(State::Binding as u8),
             framer: builder.framer,
@@ -134,6 +136,7 @@ impl DefaultListener {
                     .unwrap();
 
                 let builder = SocketBuilder::new(
+                    self.socket_events,
                     self.framer.clone(),
                     self.message.clone(),
                     self.shutdown.resubscribe(),

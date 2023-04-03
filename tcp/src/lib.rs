@@ -19,7 +19,7 @@ pub(crate) use socket::creator::Creator as SocketCreator;
 pub(crate) use socket::connection::ConnectionReader;
 pub(crate) use socket::connection::ConnectionWriter;
 pub(crate) use component::builder::Builder as ComponentBuilder;
-pub(crate) use component::creator::Creator as ComponentCreator;
+pub(crate) use component::creator::ComponentCreator;
 
 pub use error::error::Error;
 pub use framer::framer::Framer;
@@ -28,6 +28,7 @@ pub use listener::listener::Listener;
 pub use socket::socket::Socket;
 pub use component::builder::Builder;
 pub use component::component::Component;
+pub use component::component::ServerComponent;
 pub use listener::default_listener::DefaultListener;
 pub use socket::default_socket::DefaultSocket;
 pub use component::default_component::DefaultComponent;

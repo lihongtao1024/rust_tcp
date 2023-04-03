@@ -4,8 +4,6 @@ use tokio::sync::mpsc::Sender as MpscSender;
 use tokio::sync::broadcast::Receiver as BroadcastReceiver;
 use std::sync::Arc;
 
-const DEFAULT_EVENTS: usize = 16;
-
 pub struct Builder {
     pub(crate) events: usize,
     pub(crate) framer: Arc<dyn Framer>,
@@ -14,9 +12,9 @@ pub struct Builder {
 }
 
 impl Builder {
-    pub(crate) fn new(framer: Arc<dyn Framer>, message: MpscSender<Message>,
-        shutdown: BroadcastReceiver<()>) -> Self {
-        Self { events: DEFAULT_EVENTS, framer, message, shutdown }
+    pub(crate) fn new(events: usize, framer: Arc<dyn Framer>, 
+        message: MpscSender<Message>, shutdown: BroadcastReceiver<()>) -> Self {
+        Self { events, framer, message, shutdown }
     }
 
     #[allow(dead_code)]

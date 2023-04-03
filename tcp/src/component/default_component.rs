@@ -8,6 +8,7 @@ use crate::ListenerCreator;
 use crate::Socket;
 use crate::SocketBuilder;
 use crate::SocketCreator;
+use crate::ServerComponent;
 use crate::Component;
 use crate::ComponentBuilder;
 use crate::ComponentCreator;
@@ -23,14 +24,11 @@ use tokio::sync::Semaphore;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender as MpscSender;
 use tokio::sync::mpsc::Receiver as MpscReceiver;
-use tokio::sync::mpsc::UnboundedSender;
-use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::Sender as BroadcastSender;
 use tokio::sync::broadcast::Receiver as BroadcastReceiver;
 use tokio::runtime::Builder as RuntimeBuilder;
-
-const DEFAULT_DISPATCH_COUNT: usize = 16;
 
 enum Event {
     Listen(Arc<dyn Listener>),
@@ -43,10 +41,12 @@ struct ThreadContext {
 }
 
 pub struct DefaultComponent {
+    dispatches: usize,
+    socket_events: usize,
     framer: Arc<dyn Framer>,
     mtx: MpscSender<Message>,
     mrx: MpscReceiver<Message>,
-    etx: UnboundedSender<Event>,
+    etx: MpscSender<Event>,
     stx: BroadcastSender<()>,
     dispatcher: Option<&'static mut dyn Dispatcher>,
     context: Arc<ThreadContext>,
@@ -63,7 +63,7 @@ impl ThreadContext {
         )
     }
 
-    fn start(self: &Arc<Self>, erx: UnboundedReceiver<Event>, 
+    fn start(self: &Arc<Self>, erx: MpscReceiver<Event>, 
         srx: BroadcastReceiver<()>, listeners: usize, sockets: usize, 
         allocator: fn(SocketBuilder) -> Arc<dyn Socket>) -> JoinHandle<()> {
         let cloned = self.clone();
@@ -77,7 +77,7 @@ impl ThreadContext {
         })
     }
 
-    async fn run(self: &Arc<Self>, erx: UnboundedReceiver<Event>, mut srx: BroadcastReceiver<()>,
+    async fn run(self: &Arc<Self>, erx: MpscReceiver<Event>, mut srx: BroadcastReceiver<()>,
         listeners: usize, sockets: usize, allocator: fn(SocketBuilder) -> Arc<dyn Socket>) {
         select! {
             _ = self.handle(erx, allocator) => {
@@ -89,7 +89,7 @@ impl ThreadContext {
         }
     }
 
-    async fn handle(self: &Arc<Self>, mut erx: UnboundedReceiver<Event>,
+    async fn handle(self: &Arc<Self>, mut erx: MpscReceiver<Event>,
         allocator: fn(SocketBuilder) -> Arc<dyn Socket>) {
         while let Some(event) = erx.recv().await {
             match event {
@@ -142,47 +142,119 @@ impl Display for DefaultComponent {
     }
 }
 
-impl<L, S> Component<L, S> for DefaultComponent
+impl<S> Component<S> for DefaultComponent
+where
+    S: SocketCreator + Socket,
+{
+    fn connect(&mut self, addr: SocketAddr) -> Result<Arc<dyn Socket>, Error> {
+        self.connect::<S>(addr)
+    }
+
+    fn dispatch(&mut self) -> bool {
+        DefaultComponent::dispatch(self)
+    }
+
+    fn close(self) {
+        DefaultComponent::close(self)
+    }
+}
+
+impl<L, S> ServerComponent<L, S> for DefaultComponent
 where
     L: ListenerCreator + Listener,
     S: SocketCreator + Socket,
 {
     fn listen(&mut self, addr: SocketAddr) -> Result<Arc<dyn Listener>, Error> {
-        if self.context.listeners.available_permits() == 0 {
-            return Err(Error::Module("listener available permit is not enough"));
-        }
+        self.listen::<L>(addr)
+    }
+}
 
+impl<S> ComponentCreator<S> for DefaultComponent
+where
+    S: SocketCreator + Socket,
+{
+    fn new(builder: ComponentBuilder) -> Self {
+        let (mtx, mrx) = mpsc::channel(builder.messages);
+        let (etx, erx) = mpsc::channel(builder.events);
+        let (stx, _) = broadcast::channel(1);
+
+        let context = ThreadContext::new(
+            builder.listeners,
+            builder.sockets,
+        );
+        let wait = context.start(
+            erx,
+            stx.subscribe(),
+            builder.listeners,
+            builder.sockets,
+            |builder| S::new(builder) as Arc<dyn Socket>,
+        );
+
+        Self {
+            socket_events: builder.socket_events,
+            dispatches: builder.dispatchs,
+            framer: builder.framer,
+            mtx,
+            mrx,
+            etx,
+            stx,
+            dispatcher: builder.dispatcher,
+            context,
+            wait,
+        }
+    }
+}
+
+impl DefaultComponent {
+    fn listen<L>(&mut self, addr: SocketAddr) -> Result<Arc<dyn Listener>, Error>
+    where
+        L: ListenerCreator + Listener,
+    {
         let builder = ListenerBuilder::new(
+            self.socket_events,
             addr, 
             self.framer.clone(), 
             self.mtx.clone(), 
             self.stx.subscribe(),
         );
         let listener = L::new(builder);
-        self.etx.send(Event::Listen(listener.clone()))?;
-        Ok(listener)
+
+        match self.etx.try_send(Event::Listen(listener.clone())) {
+            Ok(_) => Ok(listener),
+            Err(err @ TrySendError::Closed(_)) => Err(err.into()),
+            Err(TrySendError::Full(event)) => {
+                self.etx.blocking_send(event)?;
+                Ok(listener)
+            },
+        }
     }
 
-    fn connect(&mut self, addr: SocketAddr) -> Result<Arc<dyn Socket>, Error> {
-        if self.context.sockets.available_permits() == 0 {
-            return Err(Error::Module("socket available permit is not enough"));
-        }
-
+    fn connect<S>(&mut self, addr: SocketAddr) -> Result<Arc<dyn Socket>, Error>
+    where
+        S: SocketCreator + Socket,
+    {
         let builder = SocketBuilder::new(
+            self.socket_events,
             self.framer.clone(),
             self.mtx.clone(),
             self.stx.subscribe(),
         );
-
         let socket = S::new(builder);
-        self.etx.send(Event::Connect(addr, socket.clone()))?;
-        Ok(socket)
+
+        match self.etx.try_send(Event::Connect(addr, socket.clone())) {
+            Ok(_) => Ok(socket),
+            Err(err @ TrySendError::Closed(_)) => Err(err.into()),
+            Err(TrySendError::Full(event)) => {
+                self.etx.blocking_send(event)?;
+                Ok(socket)
+            },
+        }
     }
 
     fn dispatch(&mut self) -> bool {
         let result = self.dispatcher.as_mut().map(
             |dispatcher| {
-                for _ in 0..DEFAULT_DISPATCH_COUNT {
+                for _ in 0..self.dispatches {
                     match self.mrx.try_recv() {
                         Ok(message) => {
                             match message {
@@ -220,40 +292,5 @@ where
     fn close(self) {
         let _ = self.stx.send(());
         self.wait.join().unwrap();
-    }
-}
-
-impl<L, S> ComponentCreator<L, S> for DefaultComponent
-where
-    L: ListenerCreator + Listener,
-    S: SocketCreator + Socket,
-{
-    fn new(builder: ComponentBuilder) -> Self {
-        let (mtx, mrx) = mpsc::channel(builder.messages);
-        let (etx, erx) = mpsc::unbounded_channel();
-        let (stx, _) = broadcast::channel(1);
-
-        let context = ThreadContext::new(
-            builder.listeners,
-            builder.sockets,
-        );
-        let wait = context.start(
-            erx,
-            stx.subscribe(),
-            builder.listeners,
-            builder.sockets,
-            |builder| S::new(builder) as Arc<dyn Socket>,
-        );
-
-        Self {
-            framer: builder.framer,
-            mtx,
-            mrx,
-            etx,
-            stx,
-            dispatcher: builder.dispatcher,
-            context,
-            wait,
-        }
     }
 }

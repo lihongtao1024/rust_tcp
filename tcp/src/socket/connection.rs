@@ -39,7 +39,7 @@ impl<'a> ConnectionReader<'a> {
                 if self.buf.is_empty() {
                     return Ok(None)
                 } else {
-                    return Err(Error::Module("connection reset by peer"))
+                    return Err(Error::Module(String::from("connection reset by peer")))
                 }
             }
         }
